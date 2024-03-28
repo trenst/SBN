@@ -51,7 +51,7 @@ static SBN_Status_t UnloadModules(void)
             continue; /* this module may have been loaded by ES, so continue in case there are any I loaded. */
         }             /* end if */
 
-        if (OS_ModuleUnload(SBN.ProtocolModules[i]) != OS_SUCCESS)
+        if (OS_ModuleUnload(OS_ObjectIdFromInteger(SBN.ProtocolModules[i])) != OS_SUCCESS)
         {
             EVSSendCrit(SBN_TBL_EID, "unable to unload protocol module ID %d", i);
             return SBN_ERROR;
@@ -65,7 +65,7 @@ static SBN_Status_t UnloadModules(void)
             continue; /* this module may have been loaded by ES, so continue in case there are any I loaded. */
         }             /* end if */
 
-        if (OS_ModuleUnload(SBN.FilterModules[i]) != OS_SUCCESS)
+        if (OS_ModuleUnload(OS_ObjectIdFromInteger(SBN.FilterModules[i])) != OS_SUCCESS)
         {
             EVSSendCrit(SBN_TBL_EID, "unable to unload filter module ID %d", i);
             return SBN_ERROR;
@@ -234,7 +234,7 @@ SBN_Status_t SBN_Disconnected(SBN_PeerInterface_t *Peer)
           Peer->ProcessorID,
           Status);
     }
-    Peer->Pipe = 0;
+    Peer->Pipe.id.id = 0;
 
     Peer->SendCnt = 0;
     Peer->RecvCnt = 0;
@@ -276,7 +276,7 @@ void SBN_RecvPeerTask(void)
     RecvPeerTaskData_t D;
     memset(&D, 0, sizeof(D));
 
-    D.RecvTaskID = OS_TaskGetId();
+    D.RecvTaskID = OS_ObjectIdToInteger( OS_TaskGetId() );
 
     for (D.NetIdx = 0; D.NetIdx < SBN.NetCnt; D.NetIdx++)
     {
@@ -363,7 +363,7 @@ void SBN_RecvNetTask(void)
     RecvNetTaskData_t D;
     memset(&D, 0, sizeof(D));
 
-    D.RecvTaskID = OS_TaskGetId();
+    D.RecvTaskID = OS_ObjectIdToInteger( OS_TaskGetId() );
 
     for (D.NetIdx = 0; D.NetIdx < SBN.NetCnt; D.NetIdx++)
     {
@@ -536,7 +536,7 @@ SBN_Status_t SBN_SendNetMsg(SBN_MsgType_t MsgType, SBN_MsgSz_t MsgSz, void *Msg,
 
     if (Peer->SendTaskID)
     {
-        if (OS_MutSemTake(SBN.SendMutex) != OS_SUCCESS)
+        if (OS_MutSemTake(OS_ObjectIdFromInteger(SBN.SendMutex)) != OS_SUCCESS)
         {
             EVSSendErr(SBN_PEER_EID, "unable to take send mutex");
             return SBN_ERROR;
@@ -557,7 +557,7 @@ SBN_Status_t SBN_SendNetMsg(SBN_MsgType_t MsgType, SBN_MsgSz_t MsgSz, void *Msg,
 
     if (Peer->SendTaskID)
     {
-        if (OS_MutSemGive(SBN.SendMutex) != OS_SUCCESS)
+        if (OS_MutSemGive(OS_ObjectIdFromInteger(SBN.SendMutex)) != OS_SUCCESS)
         {
             EVSSendErr(SBN_PEER_EID, "unable to give send mutex");
             return SBN_ERROR;
@@ -594,7 +594,7 @@ void SBN_SendTask(void)
 
     memset(&D, 0, sizeof(D));
 
-    D.SendTaskID = OS_TaskGetId();
+    D.SendTaskID = OS_ObjectIdToInteger( OS_TaskGetId() );
 
     for (D.NetIdx = 0; D.NetIdx < SBN.NetCnt; D.NetIdx++)
     {
@@ -736,9 +736,15 @@ static SBN_Status_t CheckPeerPipes(void)
                         char SendTaskName[32];
 
                         snprintf(SendTaskName, 32, "sendT_%d_%d_%d", (int)NetIdx, (int)(Peer->ProcessorID), (int)(Peer->SpacecraftID));
+                        CFE_ES_TaskId_t taskId;
+                        // sakdbg
+                        // CFE_Status = CFE_ES_CreateChildTask(
+                        //     &(Peer->SendTaskID), SendTaskName, (CFE_ES_ChildTaskMainFuncPtr_t)&SBN_SendTask, NULL,
+                        //     CFE_PLATFORM_ES_DEFAULT_STACK_SIZE + 2 * sizeof(SendTaskData_t), 0, 0);
                         CFE_Status = CFE_ES_CreateChildTask(
-                            &(Peer->SendTaskID), SendTaskName, (CFE_ES_ChildTaskMainFuncPtr_t)&SBN_SendTask, NULL,
+                            &taskId, SendTaskName, (CFE_ES_ChildTaskMainFuncPtr_t)&SBN_SendTask, NULL,
                             CFE_PLATFORM_ES_DEFAULT_STACK_SIZE + 2 * sizeof(SendTaskData_t), 0, 0);
+                        Peer->SendTaskID = taskId.id.id;
 
                         if (CFE_Status != CFE_SUCCESS)
                         {
@@ -827,9 +833,11 @@ static SBN_Status_t PeerPoll(void)
                 /* TODO: add logic/controls to prevent hammering */
                 char RecvTaskName[32];
                 snprintf(RecvTaskName, OS_MAX_API_NAME, "sbn_rs_%d", (int)NetIdx);
+                CFE_ES_TaskId_t taskId;
                 CFE_Status = CFE_ES_CreateChildTask(
-                    &(Net->RecvTaskID), RecvTaskName, (CFE_ES_ChildTaskMainFuncPtr_t)&SBN_RecvNetTask, NULL,
+                    &taskId, RecvTaskName, (CFE_ES_ChildTaskMainFuncPtr_t)&SBN_RecvNetTask, NULL,
                     CFE_PLATFORM_ES_DEFAULT_STACK_SIZE + 2 * sizeof(RecvNetTaskData_t), 0, 0);
+                Net->RecvTaskID = taskId.id.id;
 
                 if (CFE_Status != CFE_SUCCESS)
                 {
@@ -852,11 +860,12 @@ static SBN_Status_t PeerPoll(void)
                         /* TODO: add logic/controls to prevent hammering */
                         char RecvTaskName[32];
                         snprintf(RecvTaskName, OS_MAX_API_NAME, "sbn_recv_%d", (int)PeerIdx);
+                        CFE_ES_TaskId_t taskId;
                         CFE_Status = CFE_ES_CreateChildTask(
-                            &(Peer->RecvTaskID), RecvTaskName, (CFE_ES_ChildTaskMainFuncPtr_t)&SBN_RecvPeerTask, NULL,
+                            &taskId, RecvTaskName, (CFE_ES_ChildTaskMainFuncPtr_t)&SBN_RecvPeerTask, NULL,
                             CFE_PLATFORM_ES_DEFAULT_STACK_SIZE + 2 * sizeof(RecvPeerTaskData_t), 0, 0);
                         /* TODO: more accurate stack size required */
-
+                        Peer->RecvTaskID = taskId.id.id;
                         if (CFE_Status != CFE_SUCCESS)
                         {
                             EVSSendErr(SBN_PEER_EID, "error creating task for %d", (int)(Peer->ProcessorID));
@@ -1004,11 +1013,15 @@ static cpuaddr LoadConf_Module(SBN_Module_Entry_t *e, CFE_ES_ModuleID_t *ModuleI
         }
 
         EVSSendInfo(SBN_TBL_EID, "loading module (Name=%s, File=%s)", e->Name, e->LibFileName);
-        if (OS_ModuleLoad(ModuleIDPtr, e->Name, e->LibFileName, OS_MODULE_FLAG_GLOBAL_SYMBOLS) != OS_SUCCESS)
+        osal_id_t *module_id;
+        SBN_Status_t SBN_Status = OS_ModuleLoad(module_id, e->Name, e->LibFileName, OS_MODULE_FLAG_GLOBAL_SYMBOLS);
+
+        if (SBN_Status != OS_SUCCESS)
         {
             EVSSendErr(SBN_TBL_EID, "invalid module file (Name=%s LibFileName=%s)", e->Name, e->LibFileName);
             return 0;
         } /* end if */
+        *ModuleIDPtr = OS_ObjectIdToInteger(*module_id);
 
         EVSSendInfo(SBN_TBL_EID, "validating symbol load (%s)", e->LibSymbol);
         if (OS_SymbolLookup(&StructAddr, e->LibSymbol) != OS_SUCCESS)
@@ -1265,7 +1278,7 @@ static SBN_Status_t UnloadPeer(SBN_PeerInterface_t *Peer)
   Peer->SpacecraftID = 0;
   Peer->Net = NULL;
   Peer->TaskFlags = 0;
-  Peer->Pipe = 0;
+  Peer->Pipe.id.id = 0;
   Peer->FilterCnt = 0;
 
   return SBN_SUCCESS;
