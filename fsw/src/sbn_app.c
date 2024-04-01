@@ -234,8 +234,9 @@ SBN_Status_t SBN_Disconnected(SBN_PeerInterface_t *Peer)
           Peer->ProcessorID,
           Status);
     }
-    Peer->Pipe.id.id = 0;
 
+    CFE_SB_PipeId_t pipe = CFE_RESOURCEID_WRAPWRAP(0);
+    Peer->Pipe = pipe;
     Peer->SendCnt = 0;
     Peer->RecvCnt = 0;
     Peer->SendErrCnt = 0;
@@ -744,7 +745,7 @@ static SBN_Status_t CheckPeerPipes(void)
                         CFE_Status = CFE_ES_CreateChildTask(
                             &taskId, SendTaskName, (CFE_ES_ChildTaskMainFuncPtr_t)&SBN_SendTask, NULL,
                             CFE_PLATFORM_ES_DEFAULT_STACK_SIZE + 2 * sizeof(SendTaskData_t), 0, 0);
-                        Peer->SendTaskID = taskId.id.id;
+                        Peer->SendTaskID = CFE_RESOURCEID_UNUNWRAP(taskId);
 
                         if (CFE_Status != CFE_SUCCESS)
                         {
@@ -837,7 +838,7 @@ static SBN_Status_t PeerPoll(void)
                 CFE_Status = CFE_ES_CreateChildTask(
                     &taskId, RecvTaskName, (CFE_ES_ChildTaskMainFuncPtr_t)&SBN_RecvNetTask, NULL,
                     CFE_PLATFORM_ES_DEFAULT_STACK_SIZE + 2 * sizeof(RecvNetTaskData_t), 0, 0);
-                Net->RecvTaskID = taskId.id.id;
+                Net->RecvTaskID = CFE_RESOURCEID_UNUNWRAP(taskId);
 
                 if (CFE_Status != CFE_SUCCESS)
                 {
@@ -865,7 +866,7 @@ static SBN_Status_t PeerPoll(void)
                             &taskId, RecvTaskName, (CFE_ES_ChildTaskMainFuncPtr_t)&SBN_RecvPeerTask, NULL,
                             CFE_PLATFORM_ES_DEFAULT_STACK_SIZE + 2 * sizeof(RecvPeerTaskData_t), 0, 0);
                         /* TODO: more accurate stack size required */
-                        Peer->RecvTaskID = taskId.id.id;
+                        Peer->RecvTaskID = CFE_RESOURCEID_UNUNWRAP(taskId);
                         if (CFE_Status != CFE_SUCCESS)
                         {
                             EVSSendErr(SBN_PEER_EID, "error creating task for %d", (int)(Peer->ProcessorID));
@@ -1254,8 +1255,9 @@ static SBN_Status_t UnloadPeer(SBN_PeerInterface_t *Peer)
 
   if (Peer->TaskFlags & SBN_TASK_SEND){
     if (Peer->SendTaskID){
-        CFE_ES_TaskId_t taskID = {.id = {.id = Peer->SendTaskID}};
-        if(CFE_ES_DeleteChildTask(taskID) != CFE_SUCCESS) {
+        //CFE_ES_TaskId_t taskID = {.id = {.id = Peer->SendTaskID}};
+        CFE_ES_TaskId_t taskId = CFE_RESOURCEID_WRAPWRAP(Peer->SendTaskID);
+        if(CFE_ES_DeleteChildTask(taskId) != CFE_SUCCESS) {
             EVSSendCrit(SBN_TBL_EID, "unable to delete send task for peer %d:%d", Peer->SpacecraftID, Peer->ProcessorID);
             return SBN_ERROR;
       }
@@ -1266,7 +1268,7 @@ static SBN_Status_t UnloadPeer(SBN_PeerInterface_t *Peer)
   {
     if (Peer->RecvTaskID)
     {
-      CFE_ES_TaskId_t taskID = {{Peer->RecvTaskID}};
+      CFE_ES_TaskId_t taskID = CFE_RESOURCEID_WRAPWRAP(Peer->RecvTaskID);
       if(CFE_ES_DeleteChildTask(taskID) != CFE_SUCCESS) {
         EVSSendCrit(SBN_TBL_EID, "unable to delete recv task for peer %d:%d", Peer->SpacecraftID, Peer->ProcessorID);
       }
@@ -1278,7 +1280,8 @@ static SBN_Status_t UnloadPeer(SBN_PeerInterface_t *Peer)
   Peer->SpacecraftID = 0;
   Peer->Net = NULL;
   Peer->TaskFlags = 0;
-  Peer->Pipe.id.id = 0;
+  CFE_SB_PipeId_t pipe = CFE_RESOURCEID_WRAPWRAP(0);
+  Peer->Pipe = pipe;
   Peer->FilterCnt = 0;
 
   return SBN_SUCCESS;
@@ -1295,7 +1298,7 @@ static SBN_Status_t UnloadNets(void)
         Net->Configured = false;
 
         if(Net->RecvTaskID != 0) {
-            CFE_ES_TaskId_t taskId = {.id = {.id = Net->RecvTaskID}};
+            CFE_ES_TaskId_t taskId = CFE_RESOURCEID_WRAPWRAP(Net->RecvTaskID);
             if(CFE_ES_DeleteChildTask(taskId) != CFE_SUCCESS) {
                 EVSSendCrit(SBN_TBL_EID, "unable to delete receive task %d", NetIdx);
             }
@@ -1503,18 +1506,17 @@ void SBN_AppMain(void)
     if (CFE_EVS_Register(NULL, 0, CFE_EVS_NO_FILTER != CFE_SUCCESS))
         return;
 
-    CFE_ES_AppId_t appId = {0};
+    CFE_ES_AppId_t appId = CFE_RESOURCEID_WRAPWRAP(0);
     if (CFE_ES_GetAppID(&appId) != CFE_SUCCESS)
     {
         EVSSendCrit(SBN_INIT_EID, "%s unable to get AppID", FAIL_PREFIX);
         return;
     }
-
-    SBN.AppID = appId.id.id;
+    SBN.AppID = CFE_RESOURCEID_UNUNWRAP(appId);
 
     /* load my TaskName so I can ignore messages I send out to SB */
     uint32 taskId = OS_ObjectIdToInteger(OS_TaskGetId());
-    CFE_ES_TaskId_t tskId = {.id = {.id = taskId}};
+    CFE_ES_TaskId_t tskId = CFE_RESOURCEID_WRAPWRAP(taskId);
     if ((Status = CFE_ES_GetTaskInfo(&TaskInfo, tskId)) != CFE_SUCCESS)
     {
         EVSSendErr(SBN_INIT_EID, "%s SBN failed to get task info (%d)", FAIL_PREFIX, (int)Status);
@@ -1762,3 +1764,5 @@ SBN_Status_t SBN_ReloadConfTbl(void)
 
     return Status;
 } /* end SBN_ReloadConfTbl() */
+
+

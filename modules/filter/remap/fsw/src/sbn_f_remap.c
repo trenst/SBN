@@ -289,8 +289,8 @@ static SBN_Status_t Init(int Version, CFE_EVS_EventID_t BaseEID)
     } /* end if */
 
     /* get task name to retrieve table after loading */
-    osal_id_t TskId = OS_TaskGetId();
-    CFE_ES_TaskId_t taskId = {.id = {.id = OS_ObjectIdToInteger(TskId)}};
+    uint32 tskId = OS_ObjectIdToInteger(OS_TaskGetId());
+    CFE_ES_TaskId_t taskId = CFE_RESOURCEID_WRAPWRAP(tskId);
     if ((CFE_Status = CFE_ES_GetTaskInfo(&TaskInfo, taskId)) != CFE_SUCCESS)
     {
         EVSSendErr(BaseEID, "SBN failed to get task info (%d)", (int)CFE_Status);
