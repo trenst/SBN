@@ -1013,15 +1013,15 @@ static cpuaddr LoadConf_Module(SBN_Module_Entry_t *e, CFE_ES_ModuleID_t *ModuleI
         }
 
         EVSSendInfo(SBN_TBL_EID, "loading module (Name=%s, File=%s)", e->Name, e->LibFileName);
-        osal_id_t *module_id;
-        SBN_Status_t SBN_Status = OS_ModuleLoad(module_id, e->Name, e->LibFileName, OS_MODULE_FLAG_GLOBAL_SYMBOLS);
+        osal_id_t module_id;
+        SBN_Status_t SBN_Status = OS_ModuleLoad(&module_id, e->Name, e->LibFileName, OS_MODULE_FLAG_GLOBAL_SYMBOLS);
 
         if (SBN_Status != OS_SUCCESS)
         {
             EVSSendErr(SBN_TBL_EID, "invalid module file (Name=%s LibFileName=%s)", e->Name, e->LibFileName);
             return 0;
         } /* end if */
-        *ModuleIDPtr = OS_ObjectIdToInteger(*module_id);
+        *ModuleIDPtr = OS_ObjectIdToInteger(module_id);
 
         EVSSendInfo(SBN_TBL_EID, "validating symbol load (%s)", e->LibSymbol);
         if (OS_SymbolLookup(&StructAddr, e->LibSymbol) != OS_SUCCESS)
@@ -1252,13 +1252,12 @@ static SBN_Status_t UnloadPeer(SBN_PeerInterface_t *Peer)
 
   SBN_Disconnected(Peer);
 
-  if (Peer->TaskFlags & SBN_TASK_SEND)
-  {
-    if (Peer->SendTaskID)
-    {
-      if(CFE_ES_DeleteChildTask(Peer->SendTaskID) != CFE_SUCCESS) {
-        EVSSendCrit(SBN_TBL_EID, "unable to delete send task for peer %d:%d", Peer->SpacecraftID, Peer->ProcessorID);
-        return SBN_ERROR;
+  if (Peer->TaskFlags & SBN_TASK_SEND){
+    if (Peer->SendTaskID){
+        CFE_ES_TaskId_t taskID = {.id = {.id = Peer->SendTaskID}};
+        if(CFE_ES_DeleteChildTask(taskID) != CFE_SUCCESS) {
+            EVSSendCrit(SBN_TBL_EID, "unable to delete send task for peer %d:%d", Peer->SpacecraftID, Peer->ProcessorID);
+            return SBN_ERROR;
       }
     }
   }
@@ -1267,7 +1266,8 @@ static SBN_Status_t UnloadPeer(SBN_PeerInterface_t *Peer)
   {
     if (Peer->RecvTaskID)
     {
-      if(CFE_ES_DeleteChildTask(Peer->RecvTaskID) != CFE_SUCCESS) {
+      CFE_ES_TaskId_t taskID = {{Peer->RecvTaskID}};
+      if(CFE_ES_DeleteChildTask(taskID) != CFE_SUCCESS) {
         EVSSendCrit(SBN_TBL_EID, "unable to delete recv task for peer %d:%d", Peer->SpacecraftID, Peer->ProcessorID);
       }
     }
@@ -1295,11 +1295,12 @@ static SBN_Status_t UnloadNets(void)
         Net->Configured = false;
 
         if(Net->RecvTaskID != 0) {
-          if(CFE_ES_DeleteChildTask(Net->RecvTaskID) != CFE_SUCCESS) {
-            EVSSendCrit(SBN_TBL_EID, "unable to delete receive task %d", NetIdx);
-          }
+            CFE_ES_TaskId_t taskId = {.id = {.id = Net->RecvTaskID}};
+            if(CFE_ES_DeleteChildTask(taskId) != CFE_SUCCESS) {
+                EVSSendCrit(SBN_TBL_EID, "unable to delete receive task %d", NetIdx);
+            }
 
-          Net->RecvTaskID = 0;
+            Net->RecvTaskID = 0;
         }
 
         // UnloadNet assumes Peers are still valid
@@ -1497,22 +1498,24 @@ void SBN_AppMain(void)
     static const char FAIL_PREFIX[] = "ERROR: could not start SBN:";
     CFE_ES_TaskInfo_t TaskInfo;
     uint32            Status    = CFE_SUCCESS;
-    uint32            RunStatus = CFE_ES_RunStatus_APP_RUN, AppID = 0;
+    uint32            RunStatus = CFE_ES_RunStatus_APP_RUN;
 
     if (CFE_EVS_Register(NULL, 0, CFE_EVS_NO_FILTER != CFE_SUCCESS))
         return;
 
-    if (CFE_ES_GetAppID(&AppID) != CFE_SUCCESS)
+    CFE_ES_AppId_t appId = {0};
+    if (CFE_ES_GetAppID(&appId) != CFE_SUCCESS)
     {
         EVSSendCrit(SBN_INIT_EID, "%s unable to get AppID", FAIL_PREFIX);
         return;
     }
 
-    SBN.AppID = AppID;
+    SBN.AppID = appId.id.id;
 
     /* load my TaskName so I can ignore messages I send out to SB */
-    uint32 TskId = OS_TaskGetId();
-    if ((Status = CFE_ES_GetTaskInfo(&TaskInfo, TskId)) != CFE_SUCCESS)
+    osal_id_t TskId = OS_TaskGetId();
+    CFE_ES_TaskId_t taskId = {{TskId.v}};
+    if ((Status = CFE_ES_GetTaskInfo(&TaskInfo, taskId)) != CFE_SUCCESS)
     {
         EVSSendErr(SBN_INIT_EID, "%s SBN failed to get task info (%d)", FAIL_PREFIX, (int)Status);
         return;
@@ -1522,21 +1525,24 @@ void SBN_AppMain(void)
     SBN.App_FullName[OS_MAX_API_NAME - 1] = '\0';
 
     /** Create mutex for send tasks */
-    Status = OS_MutSemCreate(&(SBN.SendMutex), "sbn_send_mutex", 0);
+    osal_id_t id;
+    Status = OS_MutSemCreate(&id, "sbn_send_mutex", 0);
 
     if (Status != OS_SUCCESS)
     {
         EVSSendErr(SBN_INIT_EID, "%s error creating mutex for send tasks", FAIL_PREFIX);
         return;
     }
+    SBN.SendMutex = OS_ObjectIdToInteger(id);
 
     /** Create mutex for coordinating live reconfiguration **/
-    Status = OS_MutSemCreate(&(SBN.ConfMutex), "sbn_conf_mutex", 0);
+    Status = OS_MutSemCreate(&id, "sbn_conf_mutex", 0);
     if (Status != OS_SUCCESS)
     {
         EVSSendErr(SBN_INIT_EID, "%s error creating mutex for configuiration", FAIL_PREFIX);
         return;
     }
+    SBN.ConfMutex = OS_ObjectIdToInteger(id);
 
     /* Create pipe for HK requests and gnd commands */
     /* TODO: make configurable depth */
@@ -1575,7 +1581,7 @@ void SBN_AppMain(void)
     /* Loop Forever */
     while (CFE_ES_RunLoop(&RunStatus))
     {
-        if (OS_MutSemTake(SBN.ConfMutex) != OS_SUCCESS)
+        if (OS_MutSemTake(OS_ObjectIdFromInteger(SBN.ConfMutex)) != OS_SUCCESS)
         {
             EVSSendErr(SBN_PEER_EID, "ERROR: SBN run loop unable to take configuration mutex");
             break;
@@ -1583,7 +1589,7 @@ void SBN_AppMain(void)
 
         WaitForWakeup(SBN_MAIN_LOOP_DELAY);
 
-        if (OS_MutSemGive(SBN.ConfMutex) != OS_SUCCESS) {
+        if (OS_MutSemGive(OS_ObjectIdFromInteger(SBN.ConfMutex)) != OS_SUCCESS) {
             EVSSendErr(SBN_PEER_EID, "ERROR: SBN run loop unable to give configuration mutex");
             break;
         }
@@ -1732,7 +1738,7 @@ SBN_Status_t SBN_ReloadConfTbl(void)
 
     EVSSendInfo(SBN_TBL_EID, "re-initializing SBN with new configuration...");
 
-    if (OS_MutSemTake(SBN.ConfMutex) != OS_SUCCESS)
+    if (OS_MutSemTake(OS_ObjectIdFromInteger(SBN.ConfMutex)) != OS_SUCCESS)
     {
       EVSSendErr(SBN_PEER_EID, "%s could not take configuration mutex", FAIL_PREFIX);
       return SBN_ERROR;
@@ -1748,7 +1754,7 @@ SBN_Status_t SBN_ReloadConfTbl(void)
       EVSSendInfo(SBN_TBL_EID, "SBN re-initialized.");
     }
 
-    if (OS_MutSemGive(SBN.ConfMutex) != OS_SUCCESS)
+    if (OS_MutSemGive(OS_ObjectIdFromInteger(SBN.ConfMutex)) != OS_SUCCESS)
     {
       EVSSendErr(SBN_PEER_EID, "%s could not give configuration mutex", FAIL_PREFIX);
       return SBN_ERROR;

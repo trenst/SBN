@@ -55,13 +55,15 @@ static SBN_Status_t InitNet(SBN_NetInterface_t *Net)
 
     EVSSendInfo(SBN_UDP_SOCK_EID, "creating socket (NetData=0x%lx)", (long unsigned int)NetData);
 
-    if (OS_SocketOpen(&(NetData->Socket), OS_SocketDomain_INET, OS_SocketType_DATAGRAM) != OS_SUCCESS)
+    osal_id_t sock_id = {0};
+    if (OS_SocketOpen(&sock_id, OS_SocketDomain_INET, OS_SocketType_DATAGRAM) != OS_SUCCESS)
     {
         EVSSendErr(SBN_UDP_SOCK_EID, "socket open call failed");
         return SBN_ERROR;
     } /* end if */
+    NetData->Socket = sock_id.v;
 
-    if (OS_SocketBind(NetData->Socket, &LOCAL_ADDR) != OS_SUCCESS)
+    if (OS_SocketBind(OS_ObjectIdFromInteger(NetData->Socket), &LOCAL_ADDR) != OS_SUCCESS)
     {
         EVSSendErr(SBN_UDP_SOCK_EID, "bind call failed (NetData=0x%lx, Socket=%d)", (long unsigned int)NetData,
                    NetData->Socket);
@@ -227,7 +229,7 @@ static SBN_Status_t Send(SBN_PeerInterface_t *Peer, SBN_MsgType_t MsgType, SBN_M
         return SBN_ERROR;
     } /* end if */
 
-    SentSz = OS_SocketSendTo(NetData->Socket, Buf, BufSz, &PeerData->Addr);
+    SentSz = OS_SocketSendTo(OS_ObjectIdFromInteger(NetData->Socket), Buf, BufSz, &PeerData->Addr);
 
     if (SentSz < BufSz)
     {
@@ -258,14 +260,15 @@ static SBN_Status_t Recv(SBN_NetInterface_t *Net, SBN_MsgType_t *MsgTypePtr, SBN
 
     /* polling uses select, otherwise drop through to block on read for task */
     if(!(Net->TaskFlags & SBN_TASK_RECV)
-        && (OS_SelectSingle(NetData->Socket, &StateFlags, 0) != OS_SUCCESS
+        && (OS_SelectSingle(OS_ObjectIdFromInteger(NetData->Socket), &StateFlags, 0) != OS_SUCCESS
         || !(StateFlags & OS_STREAM_STATE_READABLE)))
     {
         /* nothing to receive */
         return SBN_IF_EMPTY;
     }/* end if */
 
-    int Received = OS_SocketRecvFrom(NetData->Socket, (char *)&RecvBuf, CFE_MISSION_SB_MAX_SB_MSG_SIZE, NULL, OS_PEND);
+    int Received = OS_SocketRecvFrom(OS_ObjectIdFromInteger(NetData->Socket),
+        (char *)&RecvBuf, CFE_MISSION_SB_MAX_SB_MSG_SIZE, NULL, OS_PEND);
 
     if (Received < 0)
     {

@@ -160,7 +160,7 @@ static SBN_Status_t Remap(void *msg, SBN_Filter_Ctx_t *Context)
         return SBN_ERROR;
     } /* end if */
 
-    if (OS_MutSemTake(RemapMutex) != OS_SUCCESS)
+    if (OS_MutSemTake(OS_ObjectIdFromInteger(RemapMutex)) != OS_SUCCESS)
     {
         EVSSendErr(SBN_F_REMAP_EID, "unable to take mutex");
         return SBN_ERROR;
@@ -183,7 +183,7 @@ static SBN_Status_t Remap(void *msg, SBN_Filter_Ctx_t *Context)
         } /* end if */
     }     /* end if */
 
-    if (OS_MutSemGive(RemapMutex) != OS_SUCCESS)
+    if (OS_MutSemGive(OS_ObjectIdFromInteger(RemapMutex)) != OS_SUCCESS)
     {
         EVSSendErr(SBN_F_REMAP_EID, "unable to give mutex");
         return SBN_ERROR;
@@ -243,7 +243,7 @@ static SBN_Status_t UnloadRemapTbl(void)
 
 static SBN_Status_t Deinit(CFE_EVS_EventID_t BaseEID)
 {
-    if (OS_MutSemTake(RemapMutex) != OS_SUCCESS)
+    if (OS_MutSemTake(OS_ObjectIdFromInteger(RemapMutex)) != OS_SUCCESS)
     {
         EVSSendErr(BaseEID, "unable to take mutex");
         return SBN_ERROR;
@@ -254,7 +254,7 @@ static SBN_Status_t Deinit(CFE_EVS_EventID_t BaseEID)
         return SBN_ERROR;
     }
 
-    if (OS_MutSemGive(RemapMutex) != OS_SUCCESS)
+    if (OS_MutSemGive(OS_ObjectIdFromInteger(RemapMutex)) != OS_SUCCESS)
     {
         EVSSendErr(BaseEID, "unable to give mutex");
         return SBN_ERROR;
@@ -262,7 +262,7 @@ static SBN_Status_t Deinit(CFE_EVS_EventID_t BaseEID)
 
     if (RemapMutex != 0)
     {
-        if(OS_MutSemDelete(RemapMutex) != OS_SUCCESS) {
+        if(OS_MutSemDelete(OS_ObjectIdFromInteger(RemapMutex)) != OS_SUCCESS) {
             EVSSendErr(BaseEID, "unable to delete mutex");
             return SBN_ERROR;
         }
@@ -289,8 +289,9 @@ static SBN_Status_t Init(int Version, CFE_EVS_EventID_t BaseEID)
     } /* end if */
 
     /* get task name to retrieve table after loading */
-    uint32 TskId = OS_TaskGetId();
-    if ((CFE_Status = CFE_ES_GetTaskInfo(&TaskInfo, TskId)) != CFE_SUCCESS)
+    osal_id_t TskId = OS_TaskGetId();
+    CFE_ES_TaskId_t taskId = {.id = {.id = OS_ObjectIdToInteger(TskId)}};
+    if ((CFE_Status = CFE_ES_GetTaskInfo(&TaskInfo, taskId)) != CFE_SUCCESS)
     {
         EVSSendErr(BaseEID, "SBN failed to get task info (%d)", (int)CFE_Status);
         return SBN_ERROR;
@@ -304,11 +305,13 @@ static SBN_Status_t Init(int Version, CFE_EVS_EventID_t BaseEID)
         }
     }
 
-    OS_Status = OS_MutSemCreate(&RemapMutex, "SBN_F_Remap", 0);
+    osal_id_t sem_id;
+    OS_Status = OS_MutSemCreate(&sem_id, "SBN_F_Remap", 0);
     if (OS_Status != OS_SUCCESS)
     {
         return SBN_ERROR;
     } /* end if */
+    RemapMutex = OS_ObjectIdToInteger(sem_id);
 
     if(LoadRemapTbl() != SBN_SUCCESS) {
         EVSSendErr(BaseEID, "unable to load remap table");
