@@ -1513,9 +1513,9 @@ void SBN_AppMain(void)
     SBN.AppID = appId.id.id;
 
     /* load my TaskName so I can ignore messages I send out to SB */
-    osal_id_t TskId = OS_TaskGetId();
-    CFE_ES_TaskId_t taskId = {{TskId.v}};
-    if ((Status = CFE_ES_GetTaskInfo(&TaskInfo, taskId)) != CFE_SUCCESS)
+    uint32 taskId = OS_ObjectIdToInteger(OS_TaskGetId());
+    CFE_ES_TaskId_t tskId = {.id = {.id = taskId}};
+    if ((Status = CFE_ES_GetTaskInfo(&TaskInfo, tskId)) != CFE_SUCCESS)
     {
         EVSSendErr(SBN_INIT_EID, "%s SBN failed to get task info (%d)", FAIL_PREFIX, (int)Status);
         return;

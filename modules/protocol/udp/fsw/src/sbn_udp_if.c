@@ -61,7 +61,7 @@ static SBN_Status_t InitNet(SBN_NetInterface_t *Net)
         EVSSendErr(SBN_UDP_SOCK_EID, "socket open call failed");
         return SBN_ERROR;
     } /* end if */
-    NetData->Socket = sock_id.v;
+    NetData->Socket = OS_ObjectIdToInteger(sock_id);
 
     if (OS_SocketBind(OS_ObjectIdFromInteger(NetData->Socket), &LOCAL_ADDR) != OS_SUCCESS)
     {
