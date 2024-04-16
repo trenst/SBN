@@ -738,10 +738,6 @@ static SBN_Status_t CheckPeerPipes(void)
 
                         snprintf(SendTaskName, 32, "sendT_%d_%d_%d", (int)NetIdx, (int)(Peer->ProcessorID), (int)(Peer->SpacecraftID));
                         CFE_ES_TaskId_t taskId;
-                        // sakdbg
-                        // CFE_Status = CFE_ES_CreateChildTask(
-                        //     &(Peer->SendTaskID), SendTaskName, (CFE_ES_ChildTaskMainFuncPtr_t)&SBN_SendTask, NULL,
-                        //     CFE_PLATFORM_ES_DEFAULT_STACK_SIZE + 2 * sizeof(SendTaskData_t), 0, 0);
                         CFE_Status = CFE_ES_CreateChildTask(
                             &taskId, SendTaskName, (CFE_ES_ChildTaskMainFuncPtr_t)&SBN_SendTask, NULL,
                             CFE_PLATFORM_ES_DEFAULT_STACK_SIZE + 2 * sizeof(SendTaskData_t), 0, 0);
